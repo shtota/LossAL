@@ -129,6 +129,7 @@ def train(models, criterion, optimizers, schedulers, dataloaders, num_epochs, ep
                 best_acc = acc
             print(DATASET, 'Cycle:', cycle+1, 'Epoch:', epoch, '---', 'Val Acc: {:.2f} \t Best Acc: {:.2f}'.format(acc, best_acc), flush=True)
 
+
 def get_uncertainty(models, unlabeled_loader):
     models['backbone'].eval()
     models['module'].eval()
@@ -139,18 +140,34 @@ def get_uncertainty(models, unlabeled_loader):
             inputs = inputs.cuda()
             labels = labels.cuda()
             scores, cons_scores, features, features_list = models['backbone'](inputs)
-            
+
             if SAMPLING == 'LL4AL':
-                pred_loss = models['module'](features_list) # pred_loss = criterion(scores, labels) # ground truth loss
+                pred_loss = models['module'](features_list)  # pred_loss = criterion(scores, labels) # ground truth loss
                 pred_loss = pred_loss.view(pred_loss.size(0))
 
             uncertainty = torch.cat((uncertainty, pred_loss), dim=0)
     return uncertainty.cpu()
 
+
+def get_loss(models, unlabeled_loader, criterion):
+    models['backbone'].eval()
+    models['module'].eval()
+
+    loss = torch.tensor([]).cuda()
+    with torch.no_grad():
+        for (inputs, labels) in unlabeled_loader:
+            inputs = inputs.cuda()
+            labels = labels.cuda()
+            scores, cons_scores, features, features_list = models['backbone'](inputs)
+            target_loss = criterion(scores, labels)
+            loss = torch.cat((loss, target_loss), dim=0)
+
+    return loss.cpu()
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Semi-Supervised Active Learning')
     parser.add_argument('--config', default='cifar10', type=str, help='dataset config path')
-    parser.add_argument('--sampling', default='LL4AL', type=str, help='data sampling method', choices=['RANDOM', 'LL4AL'])
+    parser.add_argument('--sampling', default='LL4AL', type=str, help='data sampling method', choices=['RANDOM', 'LL4AL', 'LOSS'])
     parser.add_argument('--auxiliary', default='LL4AL', type=str, help='auxiliary training loss', choices=['NONE', 'LL4AL'])
     args = parser.parse_args()
 
@@ -318,6 +335,21 @@ if __name__ == '__main__':
                 subset = unlabeled_set[:ADDENDUM]
                 labeled_set += subset  
                 unlabeled_set = unlabeled_set[ADDENDUM:]
+            elif SAMPLING == 'LOSS':
+                subset = unlabeled_set[:SUBSET]
+                unlabeled_loader = DataLoader(data_unlabeled, batch_size=BATCH,
+                                              sampler=SubsetSequentialSampler(subset),
+                                              pin_memory=True)
+
+                # Measure uncertainty of each data points in the subset
+                loss = get_loss(models, unlabeled_loader,criterion)
+
+                # Index in ascending order
+                arg = np.argsort(loss)
+
+                # Update the labeled dataset and the unlabeled dataset, respectively
+                labeled_set += list(torch.tensor(subset)[arg][-ADDENDUM:].numpy())
+                unlabeled_set = list(torch.tensor(subset)[arg][:-ADDENDUM].numpy()) + unlabeled_set[SUBSET:]
             else:
                 subset = unlabeled_set[:SUBSET]
                 
