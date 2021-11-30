@@ -257,7 +257,7 @@ if __name__ == '__main__':
             num_sample_train = int(len(data) * ratio[0])
             num_sample_val = len(data) - num_sample_train 
             index = list(range(len(data)))
-            random.shuffle(index)
+            np.random.RandomState(-1).shuffle(index)
             train_index = index[:num_sample_train]
             val_index = index[num_sample_train:num_sample_train+num_sample_val]
             for x in train_index:
@@ -278,7 +278,7 @@ if __name__ == '__main__':
         iters = 0
         
         indices = list(range(NUM_TRAIN))
-        random.shuffle(indices)
+        np.random.RandomState(trial).shuffle(indices)
         labeled_set = indices[:START]
         unlabeled_set = indices[START:]
 
@@ -330,7 +330,7 @@ if __name__ == '__main__':
             print('{} auxiliary:{} sampling:{} Trial:{}/{} || Cycle:{}/{} || Label set size:{} ||  Test acc:{:.2f}'.format(DATASET, AUXILIARY, SAMPLING, trial+1, TRIALS, cycle+1, CYCLES, len(labeled_set), acc), flush=True)
             
             # Active sampling
-            random.shuffle(unlabeled_set)
+            np.random.RandomState(cycle+trial*1000).shuffle(unlabeled_set)
             if SAMPLING == 'RANDOM':
                 subset = unlabeled_set[:ADDENDUM]
                 labeled_set += subset  
