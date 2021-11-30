@@ -4,14 +4,14 @@ DATASET = 'cifar10'
 DATA_DIR = 'data'
 CLASS = 10
 NUM_TRAIN = 50000 
-BATCH = 128   
+BATCH = 128
 SUBSET = 25000 
-START = 5000 
-ADDENDUM  = 2500 
+START = 1000
+ADDENDUM  = 1000
 
 # Active learning setting
 TRIALS = 3
-CYCLES = 7
+CYCLES = 10
 
 # Training setting
 MARGIN = 1.0  
