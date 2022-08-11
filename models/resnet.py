@@ -64,16 +64,17 @@ class Bottleneck(nn.Module):
 class ResNet(nn.Module):
     def __init__(self, block, num_blocks, num_classes=10):
         super(ResNet, self).__init__()
-        self.in_planes = 64
-
-        self.conv1 = nn.Conv2d(3, 64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(64)
-        self.layer1 = self._make_layer(block, 64, num_blocks[0], stride=1)
-        self.layer2 = self._make_layer(block, 128, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, num_blocks[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, num_blocks[3], stride=2)
-        self.linear = nn.Linear(512*block.expansion, num_classes)
-        self.linear1 = nn.Linear(512*block.expansion, num_classes)
+        self.in_planes = 16
+        initial_planes = self.in_planes
+        if num_classes == 2:
+            num_classes = 1
+        self.conv1 = nn.Conv2d(3, initial_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(initial_planes)
+        self.layer1 = self._make_layer(block, initial_planes, num_blocks[0], stride=1)
+        self.layer2 = self._make_layer(block, initial_planes*2, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, initial_planes*4, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, initial_planes*8, num_blocks[3], stride=2)
+        self.linear = nn.Linear(initial_planes*8*block.expansion, num_classes)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1]*(num_blocks-1)
@@ -92,8 +93,7 @@ class ResNet(nn.Module):
         out5 = F.avg_pool2d(out4, 4)
         out5 = out5.view(out5.size(0), -1)     # [128, 512]
         out = self.linear(out5)
-        out_cons = self.linear1(out5)
-        return out, out_cons, out5, [out1, out2, out3, out4]
+        return out, out5
 
 
 def ResNet18(num_classes=10):
