@@ -19,12 +19,13 @@ from models.resnet import ResNet18
 from models.vgg import VGG16
 from models.text import TextClassificationModel
 from data import prepare
-from query_strategies import query
+from query_strategies import Selector
 
 torch.backends.cudnn.benchmark = True
 AUXILIARY = 'NONE'
 TEST_BATCH = 1024
 
+DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 class SubsetSequentialSampler(Sampler):
     def __init__(self, indices):
@@ -47,6 +48,7 @@ class Runner:
         self.trials = trials
         self.cycles = cycles
         self.work_dir = work_dir
+        self.selector = None
 
         os.makedirs(os.path.join(work_dir, 'results'), exist_ok=True)
         os.makedirs(os.path.join(work_dir, 'weights'), exist_ok=True)
@@ -71,6 +73,7 @@ class Runner:
             for model_name, sampling, trial in product(self.model_names, self.samplings, range(self.start_trial, self.trials)):
                 self.model_name = model_name
                 self.sampling = sampling
+                self.selector = Selector(self.sampling, self.config)
                 self.run_trial(trial)
 
     def train(self, model, dataloaders, cycle):
@@ -87,8 +90,8 @@ class Runner:
 
             for (inputs, labels) in dataloaders['train']:
                 if self.config.TASK == 'image':
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+                    inputs = inputs.to(DEVICE)
+                    labels = labels.to(DEVICE)
 
                 optimizer.zero_grad()
                 scores, features = model(inputs)
@@ -116,8 +119,8 @@ class Runner:
         with torch.no_grad():
             for (inputs, labels) in dataloader:
                 if self.config.TASK == 'image':
-                    inputs = inputs.cuda()
-                    labels = labels.cuda()
+                    inputs = inputs.to(DEVICE)
+                    labels = labels.to(DEVICE)
 
                 scores, _ = model(inputs)
                 if self.config.CLASS == 2:
@@ -151,14 +154,14 @@ class Runner:
                                  pin_memory=pin_memory, collate_fn=self.collate_fn)
         dataloaders = {'train': train_loader, 'test': test_loader, 'unlabeled': unlabeled_loader, 'all': pool_loader}
         if self.config.TASK == 'image':
-            model = ResNet18(num_classes=self.config.CLASS).cuda() if self.model_name == 'resnet' else VGG16(
-                num_classes=self.config.CLASS).cuda()
+            model = ResNet18(num_classes=self.config.CLASS).to(DEVICE) if self.model_name == 'resnet' else VGG16(
+                num_classes=self.config.CLASS).to(DEVICE)
 
         for cycle in range(self.cycles):
             if self.config.TASK == 'text':
                 model = TextClassificationModel(self.pretrained_embedding.shape[0], num_class=self.config.CLASS,
                                                 embedding=self.pretrained_embedding if 'Emb' in self.model_name else None,
-                                                freeze='Freeze' in self.model_name).cuda()
+                                                freeze='Freeze' in self.model_name).to(DEVICE)
 
             # Training and test
             if cycle == 0:
@@ -189,7 +192,7 @@ class Runner:
                 pd.DataFrame(results).to_csv(self.results_path(trial))
                 continue
 
-            subset = query(model, dataloaders, self.sampling, labeled_set, unlabeled_set, self.config, acc, min_acc)
+            subset = self.selector.query(model, dataloaders, self.sampling, labeled_set, unlabeled_set, self.config, acc, min_acc)
             labeled_set += subset
             unlabeled_set = [x for x in unlabeled_set if x not in set(subset)]
 
@@ -197,17 +200,19 @@ class Runner:
             dataloaders['train'].sampler.indices = labeled_set
             dataloaders['unlabeled'].sampler.indices = unlabeled_set
 
+
 def _to_list(x):
     if isinstance(x, list):
         return x
     return [x]
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Active Learning')
     parser.add_argument('--dataset', default='cifar10', type=str, nargs='+',
                         choices=['cifar10', 'cifar100', 'svhn', 'yelp', 'yelp5', 'yahoo', 'imdb', 'ag'])
     parser.add_argument('--qs', default='RANDOM', type=str, help='query strategy', nargs='+')
-    parser.add_argument('--model', default='resnet', type=str, choices=['resnet', 'vgg', 'textEmb', 'text'], nargs='+')
+    parser.add_argument('--model', default='resnet', type=str, choices=['resnet', 'vgg', 'textEmb', 'text', 'lrEmb'], nargs='+')
     parser.add_argument('--cycles', default=10, type=int)
     parser.add_argument('--trials', default=1, type=int, help='number of restarts')
     parser.add_argument('--start', default=0, type=int, help='start trial')
